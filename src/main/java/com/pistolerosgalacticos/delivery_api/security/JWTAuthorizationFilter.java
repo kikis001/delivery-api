@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.Collections;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -21,32 +20,27 @@ public class JWTAuthorizationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
 
-    // 1. Validar que la cabecera exista y empiece con "Bearer "
-    private boolean isJWTValid(HttpServletRequest request) {
-        String authHeader = request.getHeader("Authorization");
-        return authHeader != null && authHeader.startsWith("Bearer ");
-    }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
 
-        if (!isJWTValid(request)) {
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        // Extraer el token puro (quitando "Bearer ")
-        String token = request.getHeader("Authorization").substring(7);
+        String token = authHeader.substring(7).trim();
 
-        if (jwtService.isTokenValid(token)) {
-            String email = jwtService.extractUsername(token);
-            String role = jwtService.extractRole(token);
+        if (!token.isBlank()
+                && jwtService.isTokenValid(token)
+                && SecurityContextHolder.getContext().getAuthentication() == null) {
+            String subject = jwtService.extractSubject(token);
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    email,
+                    subject,
                     null,
-                    Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role))
+                    Collections.emptyList()
             );
 
             SecurityContextHolder.getContext().setAuthentication(authentication);

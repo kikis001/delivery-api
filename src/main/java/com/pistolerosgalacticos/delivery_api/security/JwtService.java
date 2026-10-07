@@ -1,6 +1,7 @@
 package com.pistolerosgalacticos.delivery_api.security;
 
 import java.security.Key;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -21,21 +22,20 @@ public class JwtService {
     private long jwtExpiration;
 
     private Key getSignInKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes());
+        return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
     }
 
-    // 1. Generar token
-    public String generateToken(String username, String role) {
+    public String generateToken(String subject) {
+        Date issuedAt = new Date();
+
         return Jwts.builder()
-                .setSubject(username)
-                .claim("role", role)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
+                .setSubject(subject)
+                .setIssuedAt(issuedAt)
+                .setExpiration(new Date(issuedAt.getTime() + jwtExpiration))
                 .signWith(getSignInKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    // 2. Extraer datos (Claims)
     private Claims extractAllClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(getSignInKey())
@@ -44,18 +44,16 @@ public class JwtService {
                 .getBody();
     }
 
-    public String extractUsername(String token) {
+    public String extractSubject(String token) {
         return extractAllClaims(token).getSubject();
     }
 
-    public String extractRole(String token) {
-        return extractAllClaims(token).get("role", String.class);
-    }
-
-    // 3. Validar vigencia y firma
     public boolean isTokenValid(String token) {
         try {
-            return extractAllClaims(token).getExpiration().after(new Date());
+            Claims claims = extractAllClaims(token);
+            return claims.getSubject() != null
+                    && !claims.getSubject().isBlank()
+                    && claims.getExpiration().after(new Date());
         } catch (Exception e) {
             return false;
         }
