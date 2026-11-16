@@ -1,13 +1,16 @@
 package com.pistolerosgalacticos.delivery_api.security;
 
-import java.security.Key;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Value;
+import javax.crypto.SecretKey;
+
 import org.springframework.stereotype.Service;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -15,47 +18,50 @@ import io.jsonwebtoken.security.Keys;
 @Service
 public class JwtService {
 
-    @Value("${jwt.secret}")
-    private String secretKey;
+  private static final int LONGITUD_MINIMA_CLAVE = 32;
 
-    @Value("${jwt.expiration}")
-    private long jwtExpiration;
+  private final JwtProperties properties;
+  private final SecretKey claveFirma;
 
-    private Key getSignInKey() {
-        return Keys.hmacShaKeyFor(secretKey.getBytes(StandardCharsets.UTF_8));
+  public JwtService(JwtProperties properties) {
+    this.properties = properties;
+
+    byte[] clave = properties.secret().getBytes(StandardCharsets.UTF_8);
+    if (clave.length < LONGITUD_MINIMA_CLAVE) {
+      throw new IllegalArgumentException("JWT_SECRET debe contener al menos 32 bytes");
     }
 
-    public String generateToken(String subject) {
-        Date issuedAt = new Date();
+    this.claveFirma = Keys.hmacShaKeyFor(clave);
+  }
 
-        return Jwts.builder()
-                .setSubject(subject)
-                .setIssuedAt(issuedAt)
-                .setExpiration(new Date(issuedAt.getTime() + jwtExpiration))
-                .signWith(getSignInKey(), SignatureAlgorithm.HS256)
-                .compact();
-    }
+  public String generarToken(UsuarioPrincipal usuario) {
+    Instant emitidoEn = Instant.now();
+    Instant expiraEn = emitidoEn.plus(properties.expiration());
 
-    private Claims extractAllClaims(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(getSignInKey())
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
-    }
+    return Jwts.builder()
+        .setSubject(usuario.getUsername())
+        .claim("uid", usuario.getId())
+        .claim("rol", usuario.getRol().name())
+        .setIssuedAt(Date.from(emitidoEn))
+        .setExpiration(Date.from(expiraEn))
+        .signWith(claveFirma, SignatureAlgorithm.HS256)
+        .compact();
+  }
 
-    public String extractSubject(String token) {
-        return extractAllClaims(token).getSubject();
-    }
+  public Optional<String> obtenerSujetoValido(String token) {
+    try {
+      Claims claims = Jwts.parserBuilder()
+          .setSigningKey(claveFirma)
+          .build()
+          .parseClaimsJws(token)
+          .getBody();
 
-    public boolean isTokenValid(String token) {
-        try {
-            Claims claims = extractAllClaims(token);
-            return claims.getSubject() != null
-                    && !claims.getSubject().isBlank()
-                    && claims.getExpiration().after(new Date());
-        } catch (Exception e) {
-            return false;
-        }
+      String sujeto = claims.getSubject();
+      return sujeto == null || sujeto.isBlank()
+          ? Optional.empty()
+          : Optional.of(sujeto);
+    } catch (JwtException | IllegalArgumentException excepcion) {
+      return Optional.empty();
     }
+  }
 }
